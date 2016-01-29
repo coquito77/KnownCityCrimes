@@ -25,6 +25,10 @@ suspects <-  fread("./data/suspects.txt",
                    sep = "\t",
                    showProgress = FALSE)
 
+califCitiesWithLabels <-  fread("./data/califCitiesWithLabels.txt",
+                   sep = "\t",
+                   showProgress = FALSE)
+
 colourCount = length(unique(comboCities$Type))
 getPalette = colorRampPalette(brewer.pal(8, "Accent"))
 

@@ -49,7 +49,7 @@ toInstall <- c("knitr", "rvest", "NbClust", "cluster", "foreign", "dplyr",
 if(doInstall){install.packages(toInstall, repos = "http://cran.us.r-project.org")}
 lapply(toInstall, library, character.only = TRUE)
 
-setwd("~/CrimeRatesByCounty/") # set the working directory
+setwd("~/GitHub/KnownCityCrimes/") # set the working directory
 list.files() # see whats there
 
 ```
@@ -317,12 +317,50 @@ ggplot(frtfCaCounties, aes(long, lat, group = group)) +
 
 ggplot(frtfcalifCities, aes(long, lat, group = group)) +
   geom_polygon(aes(),  fill = "grey40", 
-               colour = "blue", alpha =.7, size = .05) +
-  geom_path(data=frtfCaCounties, aes(long,lat, group = group,
-                                     fill=hole), color = "red",
+               colour = "blue", alpha = .7, size = .05) +
+  geom_path(data = frtfCaCounties, aes(long,lat, group = group,
+                                     fill = hole), color = "red",
             alpha = .2, size = 0.3) +
   coord_map() +
-  theme_minimal() 
+  theme_minimal()
+
+# get city centroids for city labels on map
+
+centroids.df <- as.data.frame(coordinates(califCities))
+names(centroids.df) <- c("Longitude", "Latitude") 
+
+listCityNames <- califCities@data$NAME
+
+idList <- rownames(califCities@data)
+
+pop.df <- data.frame(id = idList, Names = listCityNames, centroids.df)
+
+califCities@data$id <- rownames(califCities@data)
+
+califCities.fort <- fortify(califCities, region = 'id') 
+califCities.fort <- califCities.fort[order(califCities.fort$order), ]
+
+califCitiesWithLabels <- left_join(califCities.fort,pop.df )
+
+califCitiesWithLabels <- fortify(califCitiesWithLabels, region = 'id') %>%
+  select(Names, Longitude, Latitude, group) %>%
+  unique()
+
+ggplot(frtfcalifCities, aes(long, lat, group = group)) +
+  geom_polygon(aes(),  fill = "grey40", 
+               colour = "blue", alpha = .7, size = .05) +
+  geom_path(data = frtfCaCounties, aes(long,lat, group = group,
+                                     fill = hole), color = "red",
+            alpha = .2, size = 0.3) +
+  coord_map() +
+  theme_minimal() +
+  geom_text(data = subset(califCitiesWithLabels,
+                        Names %in% c("Los Angeles",
+                                     "Riverside",
+                                     "San Diego")), 
+            aes(label = Names, x = Longitude, y = Latitude),
+            check_overlap = TRUE,
+            size = 1)
 
 ##  clip the cities that are not withing the county layer
 
@@ -523,8 +561,12 @@ left_join(longLimits, latLimits) %>%
   write.table( file = "./data/countyLimits.txt", 
                sep = "\t", na = "0", 
                row.names = FALSE)
+suspects %>%
+  write.table(file = "./data/suspects.txt",
+sep = "\t", na = "0", row.names = FALSE)
 
-suspects %>%   write.table(file = "./data/suspects.txt",
+califCitiesWithLabels %>%
+  write.table(file = "./data/califCitiesWithLabels.txt",
 sep = "\t", na = "0", row.names = FALSE)
 
 ```
@@ -580,7 +622,7 @@ comboCities %>%
 
 # TODO
 # create bendford analysis -- done
-# add city labels to the map
+# add city labels to the map -- done
 # add zoom feature to map
 # add segment that compares crime rate changes since 2011
 # add good limits for map fill colors
