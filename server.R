@@ -1,25 +1,6 @@
 
 # server.R
 
-comboCities <-  fread("./data/comboCities.txt",
-                      sep = "\t",
-                      showProgress = FALSE)
-
-frtfCaCounties <-  fread("./data/frtfCaCounties.txt",
-                         sep = "\t",
-                         showProgress = FALSE)
-
-countyLimits <-  fread("./data/countyLimits.txt",
-                       sep = "\t",
-                       showProgress = FALSE)
-
-suspects <-  fread("./data/suspects.txt",
-                       sep = "\t",
-                       showProgress = FALSE)
-
-colourCount = length(unique(comboCities$Type))
-getPalette = colorRampPalette(brewer.pal(8, "Accent"))
-
 ## Define server logic required to generate and plot
 
 shinyServer(function(input,output) {
@@ -27,14 +8,24 @@ shinyServer(function(input,output) {
   set <- reactive({
     subset(comboCities, County == input$x)
 
-
   })
 
-  output$counts <- renderPlot({
+  output$plotCitiesCounties <- renderPlot({
 
     setCities <- subset(comboCities, County == input$x)
 
     countyLimitsFiltered <- subset(countyLimits, id == input$x)
+
+    CrimeLimits <- RateLimits %>%
+      filter( County == input$x,
+              Crime == input$y) %>%
+      ungroup() %>%
+      select(CrimLimit)
+
+    CrimeLimits <- CrimeLimits$CrimLimit
+
+
+    califCitiesWithLabelsFiltered <- subset(califCitiesWithLabels, County == input$x)
 
     longMax <- countyLimitsFiltered$longMax*-1
     LongMin <- countyLimitsFiltered$LongMin*-1
@@ -43,16 +34,18 @@ shinyServer(function(input,output) {
 
     environment <- environment()
 
+    ranges <- reactiveValues(x = NULL, y = NULL)
+
     ggplot(setCities, aes(long, lat, group = group, fill = get(input$y)),
-           environment = environment)  +
+           environment = environment) +
       geom_polygon(aes(),
                    # fill="grey40",
                    colour = "grey90",
                    alpha = .7,
                    size = .05) +
       scale_fill_gradientn(name = "Crime Rate \nper 100,000 \nresidents ",
-                           colours = rainbow(7) #, limits = c(0, 3000)
-                           ) +
+                           colours = rainbow(7),
+                           limits = c(0, CrimeLimits)) +
       # geom_text(aes(label = Names, x = Longitude, y = Latitude), size = 1) +
       geom_polygon(data = frtfCaCounties, aes(long,
                                               lat,
@@ -81,14 +74,14 @@ shinyServer(function(input,output) {
             # panel.grid.major = element_blank(),
             # panel.grid.minor = element_blank(),   # remove gridlines
             panel.border = element_rect(fill = NA,
-                                             colour = "grey50"),
+                                        colour = "grey50"),
             # axis.text.x = element_blank(),
             # axis.ticks.x = element_blank(),   # remove x-axis labels and ticks
             # plot.margin = unit(c(0,0,0,0), "cm"),  #T, R, B, L
             # legend.margin = unit(-.5, "cm"),
             legend.position = "top",
             legend.title = element_text(size = 8,
-                                      colour = "blue", angle = 00),
+                                        colour = "blue", angle = 00),
             legend.text = element_text(size = 8,
                                        colour = "red", angle = 00))
 
@@ -135,8 +128,8 @@ shinyServer(function(input,output) {
       xlab("Crime Rate per 100,000 residents (log scale)") +
       ylab("City") +
       theme(axis.text.x = element_text(angle = 00,
-                                        vjust = 0.5,
-                                        size = 10),
+                                       vjust = 0.5,
+                                       size = 10),
             axis.title.y = element_text(size = 12,
                                         colour = "blue",
                                         face = "bold",
@@ -151,7 +144,6 @@ shinyServer(function(input,output) {
 
   })
 
-
   output$mytable3 <- DT::renderDataTable({
 
     setSuspects <- subset(suspects, County == input$x,
@@ -161,5 +153,23 @@ shinyServer(function(input,output) {
                   caption = 'Table 1: Known crime counts for 2014 that deviate from Benford`s law.',
                   options = list(lengthMenu = c(5, 30, 50), pageLength = 30))
   })
+
+  output$downloadData <- downloadHandler(
+
+    # This function returns a string which tells the client
+    # browser what name to use when saving the file.
+    filename = function() {
+      paste("DownloadFile", Sys.time(), input$filetype, sep = ".")
+    },
+
+    # This function should write data to a file given to it by
+    # the argument 'file'.
+    content = function(file) {
+      sep <- switch(input$filetype, "csv" = ",", "tsv" = "\t")
+
+      # Write to a file specified by the 'file' argument
+      write.table(setSuspects(), file, sep = sep,
+                  row.names = FALSE)
+    })
 
 })

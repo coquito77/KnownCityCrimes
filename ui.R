@@ -15,20 +15,23 @@ shinyUI(fluidPage(
     ),
     mainPanel(
       tabsetPanel(
-        tabPanel("City rates map", plotOutput("counts", height = "1000px")),
+        tabPanel("City rates map", plotOutput("plotCitiesCounties", height = "1000px")),
         tabPanel("City rate graph", plotOutput("graph", height = "1000px")),
-        tabPanel("Benford's Law deviations", DT::dataTableOutput('mytable3')),
+        tabPanel("Benford's Law deviations", DT::dataTableOutput('mytable3')   ),
+                # radioButtons("filetype", "File type:",
+                #              choices = c("csv", "tsv")),
+                # downloadButton('downloadData', 'Download')),
 
         tabPanel("Data Source and other information",
                  p("This report uses data from the FBI UCR tables to get known crimes rates by year for different cities in California."),
                  br(),
                  strong("Data souces for this analysis:"),
                  br(),
-                 p("[City crimes rates from FIB table 8](http://www.fbi.gov/about-us/cjis/ucr/crime-in-the-u.s/)"),
-                 p("[City of California shapefile](http://www.dot.ca.gov/hq/tsip/gis/datalibrary/Metadata/cities.html)"),
-                 p("[Counties shape file from U.S. Census](https://www.census.gov/geo/maps-data/data/cbf/cbf_counties.html)"),
-
-                 p("[Benford's law](https://en.wikipedia.org/wiki/Benford's_law)"),
+                 p(  a("City crimes rates from FIB table 8",     href = "http://www.fbi.gov/about-us/cjis/ucr/crime-in-the-u.s/")),
+                 p(  a("City of California shapefile",     href = "http://www.dot.ca.gov/hq/tsip/gis/datalibrary/Metadata/cities.html")),
+                 p(  a("Counties shape file from U.S. Census",     href = "https://www.census.gov/geo/maps-data/data/cbf/cbf_counties.html")),
+                 p(  a("Benford's law",     href = "https://en.wikipedia.org/wiki/Benford's_law")),
+                 p(  a("Program for this analysis",     href = "https://github.com/coquito77/KnownCityCrimes")),
 
                  br(),
                  p("The FBI data has the following disclaimer:"),

@@ -2,7 +2,12 @@
 title: "Crime Rates By County"
 author: "Moises Evangelista"
 date: "January 19, 2016"
-output: pdf_document
+output:
+  pdf_document:
+    fig_width: 7
+    fig_height: 9
+    fig_caption: true
+    fig_crop: false
 fontsize: 11pt
 header-includes:
 - \usepackage{palatino}
@@ -233,11 +238,12 @@ comboRecs <- comboRecs %>%
 
 comboRecs$City <-  gsub("[[:digit:]]", "", comboRecs$City)
 
-# change the values of some cities 
+# change the values of some cities to match city values on the city map
 
 comboRecs$City <-  gsub("Carmel", "Carmel-by-the-Sea", comboRecs$City)
 comboRecs$City <-  gsub("Rancho Santa Margarit", "Rancho Santa Margarita", comboRecs$City)
 comboRecs$City <-  gsub("Rancho Santa Margaritaa", "Rancho Santa Margarita", comboRecs$City)
+comboRecs$City <-  gsub("City of Angels", "Angels Camp", comboRecs$City)
 
 ```
 
@@ -340,7 +346,7 @@ califCities@data$id <- rownames(califCities@data)
 califCities.fort <- fortify(califCities, region = 'id') 
 califCities.fort <- califCities.fort[order(califCities.fort$order), ]
 
-califCitiesWithLabels <- left_join(califCities.fort,pop.df )
+califCitiesWithLabels <- left_join(califCities.fort, pop.df )
 
 califCitiesWithLabels <- fortify(califCitiesWithLabels, region = 'id') %>%
   select(Names, Longitude, Latitude, group) %>%
@@ -358,7 +364,7 @@ ggplot(frtfcalifCities, aes(long, lat, group = group)) +
                         Names %in% c("Los Angeles",
                                      "Riverside",
                                      "San Diego")), 
-            aes(label = Names, x = Longitude, y = Latitude),
+            aes(label = Names, x = Longitude, y = Latitude, color = "red"),
             check_overlap = TRUE,
             size = 1)
 
@@ -388,9 +394,14 @@ frtfCitiesInterset <- left_join(frtfCitiesInterset,
                                 califCities@data, 
                                 by = c('NewID1' = 'id'))
 
+califCitiesWithLabels <- left_join(califCitiesWithLabels, califCities@data,
+                                      by = c('Names' = 'NAME')) %>%
+    select(Names, Longitude, Latitude, group, County) %>%
+  unique()
+
 ggplot(frtfCitiesInterset, aes(long, 
                                lat, 
-                               group=group)) +
+                               group = group)) +
   geom_polygon(aes(),
                fill = "grey40",
                colour = "blue",
@@ -540,11 +551,37 @@ nrow(suspectsPop)/nrow(benfordAnalysis)
 
 ```
 
-```{r exportTheData, eval=FALSE}
+
+```{r getCrimeMax, eval = TRUE}
+
+RateLimits <- comboCities %>%
+  select(County, Type, 
+         ends_with("Rate")) %>%
+  gather(Crime, Value, -c(County, Type)) %>% unique() %>% # head(500) %>%
+  group_by(County, Crime) %>%
+  # mutate(MaxRate = max(Value, na.rm = TRUE)) %>%
+  summarise(Avg = mean(Value, na.rm = TRUE),
+            StndDvtn = sd(Value, na.rm = TRUE), 
+            MaxRate = max(Value, na.rm = TRUE),
+            iqr = IQR(Value, na.rm = TRUE),
+            Median = median(Value, na.rm = TRUE)) %>%
+  mutate( tst = (iqr*3) + Median,
+          CrimLimit =  ifelse( MaxRate > 3000, tst, MaxRate)) %>%
+  select(County, Crime, CrimLimit) %>% unique()
+
+ggplot(RateLimits, aes(CrimLimit, County)) +
+  geom_point() +
+    scale_x_continuous(labels = comma) +
+  facet_wrap(~Crime, ncol = 2)
+
+
+```
+
+```{r exportTheData, eval=TRUE}
 
 # export the data
 
-dir.create("./data")
+dir.create("./data", showWarnings = FALSE)
 
 comboCities %>%
   select(long, lat, NAME, County, Type, group, 
@@ -569,9 +606,13 @@ califCitiesWithLabels %>%
   write.table(file = "./data/califCitiesWithLabels.txt",
 sep = "\t", na = "0", row.names = FALSE)
 
+RateLimits %>%
+  write.table(file = "./data/RateLimits.txt",
+sep = "\t", na = "0", row.names = FALSE)
+
 ```
 
-```{r plotCityRatesbyYear, fig.height=10,  eval=TRUE, include=TRUE}
+```{r plotCityRatesbyYear, eval=TRUE, include=TRUE, fig.cap= "The cities of Vernon and Industry have extreme violent crimes rates because they have few residents compared to most cities", message = FALSE, warning = FALSE, include=TRUE} 
 
 colourCount = length(unique(comboCities$Type))
 getPalette = colorRampPalette(brewer.pal(8, "Accent"))
@@ -587,10 +628,10 @@ comboCities %>%
                      breaks = c(100,1000,10000,
                                 50000),
                      labels = comma_format()) +
-  scale_shape_manual(name = "Rate \nper year",
+  scale_shape_manual(name = "Violent crime \nrate per year",
                      values = c(0:5)) +
   scale_color_manual(values = getPalette(colourCount),
-                     name = "Rate \nper year",
+                     name = "Violent crime \nrate per year",
                      guide = guide_legend(keywidth = .5,
                                           keyheight = .5,
                                           direction = "vertical",
@@ -613,8 +654,71 @@ comboCities %>%
                                     vjust = 0.5, size = 8), 
         axis.text.y  = element_text(angle = 0,
                                     vjust = 0.5, size = 8),
-        legend.position = "bottom") +
+        legend.position = "top") +
   guides(colour = guide_legend(override.aes = list(alpha = 1)))
+
+```
+
+```{r MapCitiesViolentCrime, fig.height=10, eval=TRUE, include=TRUE, fig.cap= "The city of Compton has one of the highest violent crimes rates in the county for the year 2014", message = FALSE, warning = FALSE, include=TRUE} 
+
+setCities <- comboCities %>%
+  select(long, lat, NAME, County, Type, group, 
+  ends_with("Rate")) %>%
+  filter( County == "Los Angeles", Type == "CA2014") %>%
+  as.data.frame()
+
+countyLimitsFiltered <- left_join(longLimits, latLimits) %>%
+  filter( id == "Los Angeles")
+
+CrimeLimits <- RateLimits %>% 
+  filter( County == "Los Angeles",
+                      Crime == "ViolentCrimeRate") %>%
+  ungroup() %>%
+  select(CrimLimit)
+
+CrimeLimits <- CrimeLimits$CrimLimit
+
+califCitiesWithLabelsFiltered <- califCitiesWithLabels %>%
+  filter(County == "Los Angeles") %>%
+  group_by(Names, County) %>% 
+ distinct()
+
+longMax <- countyLimitsFiltered$longMax*-1
+LongMin <- countyLimitsFiltered$LongMin*-1
+latMax <- countyLimitsFiltered$latMax
+LatMin <- countyLimitsFiltered$LatMin
+
+setCities %>% left_join(califCitiesWithLabelsFiltered, 
+                        c("NAME" = "Names")) %>%
+  droplevels() %>%
+  ggplot(aes(long, lat, group = group.x, fill = ViolentCrimeRate)) +
+  geom_polygon(aes(),
+               # fill="grey40",
+               colour = "grey90",
+               alpha = .7,
+               size = .05) +
+  scale_fill_gradientn(name = "Violent crime Rate per \n100,000 residents in 2014",
+                       colours = rainbow(7),
+                       limits = c(0, CrimeLimits) ) +
+  geom_text(aes(label = NAME, x = Longitude, y = Latitude),
+            check_overlap = TRUE,
+            size = 2) +
+  geom_polygon(data = frtfCaCounties, aes(long,
+                                          lat,
+                                          group = group),
+               fill = "khaki",
+               color = "red",
+               alpha = .2,
+               size = 0.1)  +
+  coord_map(xlim = -c(longMax, LongMin), 
+            ylim = c(latMax, LatMin)) +
+  theme_minimal() +
+  theme(legend.position = c(.15, .45),
+        #plot.margin = unit(c(0,0,-.5,-.5), "cm"),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank())
 
 ```
 
@@ -625,7 +729,8 @@ comboCities %>%
 # add city labels to the map -- done
 # add zoom feature to map
 # add segment that compares crime rate changes since 2011
-# add good limits for map fill colors
+# add good limits for map fill colors -- done
+# add links to data souces and code -- done
 
 ```
 
