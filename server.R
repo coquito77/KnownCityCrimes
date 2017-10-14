@@ -1,14 +1,33 @@
+# library(shiny)
+# library(mapview)
+# library(sp)
 
 # server.R
 
 ## Define server logic required to generate and plot
 
-shinyServer(function(input,output) {
+shinyServer(function(input,output,session) {
 
   set <- reactive({
     subset(comboCities, County == input$x)
 
   })
+#
+#   data(meuse)
+#   coordinates(meuse) <- ~x+y
+#   proj4string(meuse) <- CRS("+init=epsg:28992")
+#
+#   data(meuse.grid)
+#   coordinates(meuse.grid) <- ~x+y
+#   proj4string(meuse.grid) <- CRS("+init=epsg:28992")
+#   gridded(meuse.grid) <- TRUE
+#
+#   m <- mapview(meuse.grid, zcol = "dist") + meuse
+#
+#   output$mapplot <- renderMapview(m)
+#
+#   })
+
 
   output$plotCitiesCounties <- renderPlot({
 
@@ -36,9 +55,9 @@ shinyServer(function(input,output) {
 
     ranges <- reactiveValues(x = NULL, y = NULL)
 
-    ggplot(setCities, aes(long, lat, group = group, fill = get(input$y)),
-           environment = environment) +
-      geom_polygon(aes(),
+    setCities %>%
+      ggplot( environment = environment) +
+      geom_polygon(aes(long, lat, group = group, fill = get(input$y)),
                    # fill="grey40",
                    colour = "grey90",
                    alpha = .7,
@@ -56,7 +75,7 @@ shinyServer(function(input,output) {
                    size = 0.1) +
       coord_map(xlim = -c(longMax, LongMin), ylim = c(latMax, LatMin)) +
       theme_minimal() +
-      facet_wrap(~ Type,  ncol = 3) +
+      facet_wrap(~ year,  ncol = 3) +
       theme(axis.title.x = element_text(size = 8,
                                         angle = 00),
             axis.text.x = element_text(colour = "black",
@@ -69,8 +88,8 @@ shinyServer(function(input,output) {
                                        size = 5,
                                        angle = 00,
                                        vjust = .5),
-            axis.title.y = element_blank(),
-            axis.title.x = element_blank(),    # remove axis titles
+            #axis.title.y = element_blank(),
+            #axis.title.x = element_blank(),    # remove axis titles
             # panel.grid.major = element_blank(),
             # panel.grid.minor = element_blank(),   # remove gridlines
             panel.border = element_rect(fill = NA,
@@ -97,16 +116,16 @@ shinyServer(function(input,output) {
 
     setCities %>%
       distinct() %>%
-      ggplot(aes(get(input$y), NAME),
+      ggplot(aes(get(input$y), City),
              environment = environment) +
-      geom_point(aes(colour = factor(Type),
-                     shape = factor(Type)),
+      geom_point(aes(colour = factor(year),
+                     shape = factor(year)),
                  size = 5) +
       scale_x_continuous(trans = log_trans(),
                          breaks = c(5, 10, 100, 1000, 10000, 50000),
-                         labels = comma_format()) +
+                         labels = comma_format())+
       scale_shape_manual(name = "Rate",
-                         values = c(0:5)) +
+                         values = c(0:6)) +
       scale_color_manual(values = getPalette(colourCount),
                          name = "Rate",
                          guide = guide_legend(keywidth = .5,
@@ -150,7 +169,7 @@ shinyServer(function(input,output) {
                           select = -County)
 
     DT::datatable(setSuspects,
-                  caption = 'Table 1: Known crime counts for 2014 that deviate from Benford`s law.',
+                  caption = 'Table 1: Known crime counts that deviate from Benford`s law.',
                   options = list(lengthMenu = c(5, 30, 50), pageLength = 30))
   })
 

@@ -15,6 +15,10 @@ shinyUI(fluidPage(
     ),
     mainPanel(
       tabsetPanel(
+        tabPanel("City rates map_test",
+                 p("dynamic maps go here.")),
+        # leafletOutput("mapplot"),
+        # mapview:::plainViewOutput("test")),
         tabPanel("City rates map", plotOutput("plotCitiesCounties", height = "1000px")),
         tabPanel("City rate graph", plotOutput("graph", height = "1000px")),
         tabPanel("Benford's Law deviations", DT::dataTableOutput('mytable3')   ),
@@ -37,9 +41,11 @@ shinyUI(fluidPage(
                  p("The FBI data has the following disclaimer:"),
 
                  p("Caution against ranking"),
-                 p("Figures used in this Report were submitted voluntarily by law enforcement agencies throughout the country. Individuals using these tabulations are cautioned against drawing conclusions by making direct comparisons between cities. Comparisons lead to simplistic and/or incomplete analyses that often create misleading perceptions adversely affecting communities and their residents. Valid assessments are possible only with careful study and analysis of the range of unique conditions affecting each local law enforcement jurisdiction. It is important to remember that crime is a social problem and, therefore, a concern of the entire community. In addition, the efforts of law enforcement are limited to factors within its control. The data user is, therefore, cautioned against comparing statistical data of individual agencies. Further information on this topic can be obtained in Uniform Crime Reporting Statistics:  Their Proper Use."),
+                 p("'Figures used in this Report were submitted voluntarily by law enforcement agencies throughout the country. Individuals using these tabulations are cautioned against drawing conclusions by making direct comparisons between cities. Comparisons lead to simplistic and/or incomplete analyses that often create misleading perceptions adversely affecting communities and their residents. Valid assessments are possible only with careful study and analysis of the range of unique conditions affecting each local law enforcement jurisdiction. It is important to remember that crime is a social problem and, therefore, a concern of the entire community. In addition, the efforts of law enforcement are limited to factors within its control. The data user is, therefore, cautioned against comparing statistical data of individual agencies. Further information on this topic can be obtained in Uniform Crime Reporting Statistics...'"),
 
-                 p("Note: if you can not locate a city it is because there is no FBI UCR data for it, or it is not on the shapefile for cities"))
+                 p(a("https://ucr.fbi.gov/ucr-statistics-their-proper-use",     href = "https://ucr.fbi.gov/ucr-statistics-their-proper-use")),
+
+                 p("Note: if you can not locate a city it is because there is no FBI UCR data for it or the city is missing from the shape file"))
 
       )
     )

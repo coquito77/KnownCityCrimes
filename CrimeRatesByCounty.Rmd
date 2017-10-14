@@ -128,6 +128,8 @@ Years <- seq(2012, 2015, by = 1) %>% as.vector()
 
 all_tables <- vector("list", length = (length(Years)))
 
+# use algorithm to import data by year
+ 
 for(i in 1:length(Years)){
   
   year <- Years[i]
@@ -191,25 +193,26 @@ comboRecs <- rbind(datacombo2,datacombo)
 
 # make number into correct format
 
-comboRecs <- comboRecs %>% 
-  mutate_each(funs(as.numeric(gsub(",","",.))),c(Population:Arson))
-
-# get rates by city and metric
-
-comboRecs <- comboRecs  %>%
-  group_by(City) %>%
-  mutate_each(funs(rate = (./Population)*100000),(Violentcrime:Arson)) %>% 
-  ungroup %>% 
+comboRecs <- comboRecs %>%
+  mutate_at(vars(Population:Arson),
+            funs(as.numeric(gsub(",","",.)))) %>%
+  mutate_at(vars(Violentcrime:Arson), funs(rate = (./Population)*100000)) %>% 
   mutate(City =  gsub("[[:digit:]]", "", City),
          City =  gsub("Carmel", "Carmel-by-the-Sea", City),
          City =  gsub("Rancho Santa Margarit", "Rancho Santa Margarita", City),
          City =  gsub("Rancho Santa Margaritaa", "Rancho Santa Margarita", City),
          City =  gsub("City of Angels", "Angels Camp", City))
 
+# clean up the work space
+# 
+rm(list=ls(pattern="^data"))
+
 ```
 
 
-```{r processShapeFiles}
+
+
+```{r processShapeFiles, eval = FALSE}
 
 # rm(list = ls(all = TRUE)) #start with empty workspace
 
@@ -230,73 +233,152 @@ con
 
 # US Counties
 
-download.file('http://www2.census.gov/geo/tiger/GENZ2014/shp/cb_2014_us_county_500k.zip', 'county.zip',
+download.file('http://www2.census.gov/geo/tiger/GENZ2016/shp/cb_2016_us_county_500k.zip', 'county.zip',
               quiet = TRUE)
 
 temp <- unzip('county.zip')
 
-# read shape files for US counties and calif cities
+## 
+## process maps
 
-califCities <- readShapePoly("./Cities2015")
+# rm(list = ls(all = TRUE)) #start with empty workspace
 
-head(califCities@data)
+# rgdal::readOGR() works almost the same, but you need to strip the '.shp' from the end of the filenames:
 
-Counties <- readShapePoly("cb_2014_us_county_500k")
 
-Counties@data$id <- rownames(Counties@data)
+library(rgdal)
 
-head(Counties@data)
+ogrDrivers()
+dsn <- getwd()
+ogrListLayers(dsn)
+ogrInfo(dsn)
 
-# filter counties in Calif
+shps <- dir(getwd(),full.names = TRUE, "*.shp$")
+ 
+#shps <- Filter(function(x) grepl("CalWorks_Approved\\.", x), shps)
+ 
+shpsNames <- sub('\\.shp$',"",shps) %>% basename(.)
+ 
+for (i in 1:length(shps)) {
+  
+  x <- rgdal::readOGR(dsn = shps[i], layer = shpsNames[i])
+  
+  # x <- rgdal::readOGR(dsn = "~/GitHub/KnownCityCrimes/cb_2016_us_county_500k.shp", layer = "cb_2016_us_county_500k");
+  xdata <- x@data
+  
+  x1 <- rgeos::gSimplify(x, tol = 1/1000, topologyPreserve=TRUE)
+  
+  x1 <- rgeos::gBuffer(x1, byid=TRUE, width=0)
+  
+  # do some staff with "poly_df" that doesn't support SpatialPolygonsDataFrame
+  # then convert it to SPDF back again
+  x1 <- SpatialPolygonsDataFrame(x1, xdata)
+  # add new column to SPDF:
+  # 
+  # x2 <- x
+  # 
+  #cleanedMap2 <- broom::tidy(x1, region = "DIST")
+  # 
+  # cleanedMap <- broom::tidy(x, region = "DIST")
+  # 
+  # x <- dplyr::left_join(cleanedMap,
+  #                       #xdata,
+  #                       x@data,
+  #                       by = c("id" = "DIST")) %>%
+  #   mutate(type = shpsNames[i],
+  #          type = gsub("_" ," ", type))
+  # 
+  # x <- data.frame(x)
+  
+    # x2 <- dplyr::left_join(cleanedMap2,
+    #                     xdata,
+    #                     #x@data,
+    #                     by = c("id" = "NAME")) %>%
+    # mutate(type = shpsNames[i],
+    #        type = gsub("_" ," ", type))
+    # 
+ # x <- data.frame(x2)
+ 
+  assign(shpsNames[i],x)
+  
+  #rm(x)
+  
+  #rm(cleanedMap)
+}
 
-CaCounties <-  subset(Counties,
+
+CaCounties <-  subset(cb_2016_us_county_500k,
                       STATEFP == "06")
 
 ##  clip the cities that are not withing the county layer
 
-head(califCities@data)
+head(Cities2015@data)
 
-califCities@data$id <- rownames(califCities@data)
+cityData <- Cities2015@data %>% rownames_to_column( var = "NewID1")
 
-califCitiesInter <- gIntersection(califCities, CaCounties, 
+Cities2015@data$id <- rownames(Cities2015@data)
+
+califCitiesInter <- gIntersection(Cities2015, CaCounties, 
                                   byid = TRUE,
                                   drop_lower_td = TRUE)
 
+#califCitiesInter <-  SpatialPolygonsDataFrame(califCitiesInter, cityData)
+
 # simplify the maps and make them data frames
 
-frtfCaCounties <-  CaCounties %>% 
-  gSimplify( tol = 0.001, topologyPreserve = TRUE) %>% 
+frtfCaCounties <-  CaCounties %>%  
   broom::tidy( region = "NAME")
 
 frtfCitiesInterset <- califCitiesInter %>% 
-  gSimplify( tol = 0.001, topologyPreserve = TRUE) %>% 
   broom::tidy( region = "NAME") %>% 
   separate(id, into = c("NewID1", "NewID2"), sep = " ") %>% 
-  left_join(califCities@data, 
-            by = c('NewID1' = 'id'))
+  left_join(cityData, 
+            by = c('NewID1')) %>% 
+  rename(City = NAME)
 
 # get city centroids for city labels on map
 
-centroids.df <- as.data.frame(coordinates(califCities))
-names(centroids.df) <- c("Longitude", "Latitude") 
+centroids.df <- as.data.frame(coordinates(Cities2015)) %>% 
+  select(Longitude = 1, Latitude = 2)
 
-listCityNames <- califCities@data$NAME
+pop.df <- data.frame(id = rownames(Cities2015@data),
+                     Names = Cities2015@data$NAME,
+                     centroids.df)
 
-idList <- rownames(califCities@data)
-
-pop.df <- data.frame(id = idList, Names = listCityNames, centroids.df)
-
-califCities@data$id <- rownames(califCities@data)
+#  Cities2015@data$id <- rownames(Cities2015@data)
 
 califCitiesWithLabels <- left_join(frtfCitiesInterset, pop.df,
                                    by = c("NewID1" = "id"))  %>%
-  select(Names, Longitude, Latitude, group) %>%
-  unique()
+  select(Names, Longitude, Latitude, NewID1, County) %>%
+  distinct()
 
-ggplot(frtfCitiesInterset, aes(long, 
+## remove unnecessary files and save data
+
+keepers <- c("CrimeRatesByCounty.pdf","CrimeRatesByCounty.Rmd",
+             "global.R","LICENSE","README.md","server.R","ui.R","data") #list.files()[26:32]
+
+NotKeepers <- setdiff(list.files(),keepers)
+
+do.call(file.remove,list(NotKeepers))
+
+rm(list=setdiff(ls(), c("comboRecs", "califCitiesWithLabels",
+                        "frtfCitiesInterset","frtfCaCounties",
+                        "centroids.df","califCitiesWithLabels")))
+
+save.image(file="data.RData")
+
+```
+
+
+```{r processData, eval = TRUE}
+# rm(list = ls(all = TRUE)); setwd("~/GitHub/KnownCityCrimes/"); list.files() 
+
+load("data.RData")
+
+ggplot() +
+  geom_polygon(data = frtfCitiesInterset, aes(long, 
                                lat, 
-                               group = group)) +
-  geom_polygon(aes(),
+                               group = group),
                fill = "grey40",
                colour = "blue",
                alpha = .7,
@@ -310,11 +392,11 @@ ggplot(frtfCitiesInterset, aes(long,
                size = 0.1) +
   coord_map() +
   theme_minimal() +
-  geom_text(data = subset(califCitiesWithLabels,
-                          Names %in% c("Los Angeles",
+  geom_text(data = califCitiesWithLabels %>% filter(Names %in% c("Los Angeles",
                                        "Riverside",
-                                       "San Diego")), 
-            aes(label = Names, x = Longitude, y = Latitude),color = "red",
+                                       "San Diego")) , 
+            aes(label = Names, x = Longitude, y = Latitude),
+            color = "red",
             check_overlap = TRUE,
             size = 1)
 
@@ -322,23 +404,29 @@ ggplot(frtfCitiesInterset, aes(long,
 
 head(frtfCitiesInterset)
 
-comboCities <- left_join(frtfCitiesInterset, 
-                                comboRecs, 
-                                by = c('NAME' = 'City')) %>%
-  #filter(!is.na(Type)) %>%
-  unique()
+frtfCitiesInterset <- frtfCitiesInterset %>% setDT(key = 'City')
+
+comboRecs <- comboRecs %>% setDT(key = 'City')
+
+startTime <- Sys.time()
+
+comboCities <- merge(frtfCitiesInterset, comboRecs,
+                      by.x = c('City'), by.y = c('City'), all.x = TRUE,
+                      allow.cartesian = TRUE)
+
+Sys.time() - startTime
 
 # take a look at those cities not on the map layer
 
 anti_join(frtfCitiesInterset,
           comboRecs,
-          by = c('NAME' = 'City')) %>%
-  select(County, NAME) %>%
+          by = c('City' = 'City')) %>%
+  select(County, City) %>%
   distinct()
 
 anti_join(comboRecs,
           frtfCitiesInterset,
-          by = c('City' = 'NAME')) %>%
+          by = c('City' = 'City')) %>%
   select(City) %>%
   distinct()
 
@@ -375,17 +463,18 @@ latLimits <- frtfCaCounties %>%
 
 comboCities %>%
   filter(County == "Los Angeles") %>% 
-  filter(NAME != 'Vernon' &
-           NAME !='Industry') %>%
+  filter(City != 'Vernon' &
+           City !='Industry') %>%
   # select(NAME) %>%
   # distinct() %>% arrange((NAME))
-  ggplot( aes(long, lat, group = group, fill = Violentcrime_rate)) +
-  geom_polygon(aes(),
+  ggplot( ) +
+  geom_polygon(aes(long, lat, group = group, fill = Violentcrime_rate),
                # fill="grey40",
                colour = "grey90",
                alpha = .7,
                size = .05) +
-  # geom_text(aes(label = NAME, x = Longitude, y = Latitude), size = 1) +
+  geom_text(data = califCitiesWithLabels,
+            aes(label = Names, x = Longitude, y = Latitude), size = 1) +
   scale_fill_gradientn(name = "Rate",
                        colours = rainbow(7),
                        limits = c(0,2000)) +
@@ -402,470 +491,18 @@ comboCities %>%
 
 ```
 
-```{r oldProcess}
-
-
-ggplot() +   geom_path(data = frtfcalifCities, aes(long,lat, group = group,
-                                                   fill = hole), color = "blue",
-                       alpha = .2, size = 0.3) +
-  geom_path(data = frtfCaCounties, aes(long,lat, group = group,
-                                       fill = hole), color = "red",
-            alpha = .2, size = 0.3) +
-  coord_map() +
-  theme_minimal() 
-
-
-###
-### http://stackoverflow.com/questions/19791210/r-ggplot2-merge-with-shapefile-and-csv-data-to-fill-polygons
-
-
-# get city centroids for city labels on map
-
-centroids.df <- as.data.frame(coordinates(califCities))
-names(centroids.df) <- c("Longitude", "Latitude") 
-
-listCityNames <- califCities@data$NAME
-
-idList <- rownames(califCities@data)
-
-pop.df <- data.frame(id = idList, Names = listCityNames, centroids.df)
-
-califCities@data$id <- rownames(califCities@data)
-
-califCitiesWithLabelst <- left_join(frtfcalifCities, pop.df )  %>%
-  select(Names, Longitude, Latitude, group) %>%
-  unique()
-
-
-
-ggplot(frtfcalifCities, aes(long, lat, group = group)) +
-  geom_polygon(aes(),  fill = "grey40", 
-               colour = "blue", alpha = .7, size = .05) +
-  geom_path(data = frtfCaCounties, aes(long,lat, group = group,
-                                     fill = hole), color = "red",
-            alpha = .2, size = 0.3) +
-  coord_map() +
-  theme_minimal() +
-  geom_text(data = subset(califCitiesWithLabelst,
-                        Names %in% c("Los Angeles",
-                                     "Riverside",
-                                     "San Diego")), 
-            aes(label = Names, x = Longitude, y = Latitude, color = "red"),
-            check_overlap = TRUE,
-            size = 1)
-
-
-
-
-
-##  clip the cities that are not withing the county layer
-
-library(rgeos)
-
-head(califCities@data)
-
-califCities@data$id <- rownames(califCities@data)
-
-citiesInterset <- gIntersection(califCities, CaCounties, 
-                     byid = TRUE,
-                     drop_lower_td = TRUE)
-
-frtfCitiesInterset <- fortify(citiesInterset, region = "NAME")
-
-# get the id field
-
-head(califCities@data)
-head(frtfCitiesInterset)
-
-frtfCitiesInterset <- frtfCitiesInterset %>% 
-  separate(id, into = c("NewID1", "NewID2"), sep = " ")
-
-frtfCitiesInterset <- left_join(frtfCitiesInterset, 
-                                califCities@data, 
-                                by = c('NewID1' = 'id'))
-
-califCitiesWithLabels <- left_join(califCitiesWithLabels, califCities@data,
-                                      by = c('Names' = 'NAME')) %>%
-    select(Names, Longitude, Latitude, group, County) %>%
-  unique()
-
-ggplot(frtfCitiesInterset, aes(long, 
-                               lat, 
-                               group = group)) +
-  geom_polygon(aes(),
-               fill = "grey40",
-               colour = "blue",
-               alpha = .7,
-               size = .05) +
-  geom_polygon(data = frtfCaCounties, aes(long,
-                                        lat,
-                                        group = group), 
-            fill = "khaki",
-            color = "red",
-            alpha = .2,
-            size = 0.1) +
-  coord_map() +
-  theme_minimal() 
-
-# merget the pas with the set of table8 crimes
-
-head(frtfCitiesInterset)
-
-comboCities <- left_join(frtfCitiesInterset, 
-                                comboRecs, 
-                                by = c('NAME' = 'City')) %>%
-  filter(!is.na(Type)) %>%
-  unique()
-
-# take a look at those cities not on the map layer
-
-anti_join(frtfCitiesInterset,
-          comboRecs,
-          by = c('NAME' = 'City')) %>%
-  select(County, NAME) %>%
-  distinct()
-
-anti_join(comboRecs,
-          frtfCitiesInterset,
-          by = c('City' = 'NAME')) %>%
-  select(City) %>%
-  distinct()
-
-# get the limits for each county
-
-longLimits <- frtfCaCounties %>%
-  group_by(id) %>%
-  select(long, id) %>%
-  unique() %>%
-  arrange(long) %>%  ## optional
-  filter(long %in% range(long)) %>%
-   mutate(Number = 1,
-          cumsum = cumsum(Number)) %>%
-  select(long, id, cumsum) %>%
-  mutate(cumsum = ifelse(cumsum == 1, 
-                         "longMax", "LongMin")) %>%
-  spread(cumsum, long)
-
-latLimits <- frtfCaCounties %>%
-  group_by(id) %>%
-  select(lat, id) %>%
-  unique() %>%
-  arrange(lat) %>%  ## optional
-  filter(lat %in% range(lat)) %>%
-   mutate(Number = 1,
-          cumsum = cumsum(Number)) %>%
-  select(lat, id, cumsum) %>%
-  mutate(cumsum = ifelse(cumsum == 1, 
-                         "latMax", "LatMin")) %>%
-  spread(cumsum, lat)
-
-
-# centroids.df <- as.data.frame(coordinates(comboCities))
-# names(centroids.df) <- c("Longitude", "Latitude") 
-
-comboCities %>%
-  filter(NAME != 'Vernon' &
-           NAME !='Industry') %>%
-  # select(NAME) %>%
-  # distinct() %>% arrange((NAME))
-  ggplot( aes(long, lat, group = group, fill = ViolentCrimeRate)) +
-  geom_polygon(aes(),
-               # fill="grey40",
-               colour = "grey90",
-               alpha = .7,
-               size = .05) +
-  # geom_text(aes(label = NAME, x = Longitude, y = Latitude), size = 1) +
-  scale_fill_gradientn(name = "Rate",
-                       colours = rainbow(7),
-                       limits = c(0,2000)) +
-  geom_polygon(data = frtfCaCounties, aes(long,
-                                          lat,
-                                          group = group), 
-               fill = "khaki",
-               color = "red",
-               alpha = .2,
-               size = 0.1) +
-  coord_map() +
-  theme_minimal() + 
-  facet_wrap(~ Type)
-
-
-```
-
-
-```{r downloadShapeFiles, eval=TRUE, include=FALSE}
-
-# city shape file 
-# http://www.dot.ca.gov/hq/tsip/gis/datalibrary/Metadata/cities.html
-
-library(maptools)
-
-# create an interactive map like this
-
-# http://spatial.ly/2013/12/introduction-spatial-data-ggplot2/
-
-# US Counties
-
-download.file('http://www2.census.gov/geo/tiger/GENZ2014/shp/cb_2014_us_county_500k.zip', 'county.zip',
-              quiet = TRUE)
-
-temp <- unzip('county.zip')
-
-Counties <- readShapePoly("cb_2014_us_county_500k")
-
-Counties@data$id <- rownames(Counties@data)
-
-head(Counties@data)
-
-# filter counties in Calif
-
-CaCounties <-  subset(Counties, 
-                      STATEFP == "06")
-
-head(CaCounties@data)
-
-tail(CaCounties@data)
-
-# CAlifornia Cities
-
-temp <- tempfile()
-
-
-download.file("http://www.dot.ca.gov/hq/tsip/gis/datalibrary/zip/Boundaries/Cities2015.zip",
-               quiet = TRUE, 
-              destfile = temp)
-
-con <- unzip(temp)
-
-# take a look at the files on the data
-con
-
-califCities <- readShapePoly("./Cities2015")
-
-head(califCities@data)
-
-head(califCities@polygons)
-
-frtfcalifCities <- fortify(califCities, region = "NAME")
-
-frtfCaCounties <- fortify(CaCounties, region = "NAME")
-
-###
-### http://stackoverflow.com/questions/19791210/r-ggplot2-merge-with-shapefile-and-csv-data-to-fill-polygons
-
-ggplot(frtfcalifCities, aes(long, lat, group = group)) +
-  geom_polygon(aes(),  fill = "grey40", 
-               colour = "grey90", alpha = .7, size = .05) +
-  coord_map() +
-  theme_minimal() 
-
-ggplot(frtfCaCounties, aes(long, lat, group = group)) +
-  geom_polygon(aes(),  fill = "blue", colour = "red", 
-               alpha = .2, size = .05) +
-  coord_map() +
-  theme_minimal() 
-
-ggplot(frtfcalifCities, aes(long, lat, group = group)) +
-  geom_polygon(aes(),  fill = "grey40", 
-               colour = "blue", alpha = .7, size = .05) +
-  geom_path(data = frtfCaCounties, aes(long,lat, group = group,
-                                     fill = hole), color = "red",
-            alpha = .2, size = 0.3) +
-  coord_map() +
-  theme_minimal()
-
-# get city centroids for city labels on map
-
-centroids.df <- as.data.frame(coordinates(califCities))
-names(centroids.df) <- c("Longitude", "Latitude") 
-
-listCityNames <- califCities@data$NAME
-
-idList <- rownames(califCities@data)
-
-pop.df <- data.frame(id = idList, Names = listCityNames, centroids.df)
-
-califCities@data$id <- rownames(califCities@data)
-
-califCities.fort <- fortify(califCities, region = 'id') 
-califCities.fort <- califCities.fort[order(califCities.fort$order), ]
-
-califCitiesWithLabels <- left_join(califCities.fort, pop.df )
-
-califCitiesWithLabels <- fortify(califCitiesWithLabels, region = 'id') %>%
-  select(Names, Longitude, Latitude, group) %>%
-  unique()
-
-ggplot(frtfcalifCities, aes(long, lat, group = group)) +
-  geom_polygon(aes(),  fill = "grey40", 
-               colour = "blue", alpha = .7, size = .05) +
-  geom_path(data = frtfCaCounties, aes(long,lat, group = group,
-                                     fill = hole), color = "red",
-            alpha = .2, size = 0.3) +
-  coord_map() +
-  theme_minimal() +
-  geom_text(data = subset(califCitiesWithLabels,
-                        Names %in% c("Los Angeles",
-                                     "Riverside",
-                                     "San Diego")), 
-            aes(label = Names, x = Longitude, y = Latitude, color = "red"),
-            check_overlap = TRUE,
-            size = 1)
-
-##  clip the cities that are not withing the county layer
-
-library(rgeos)
-
-head(califCities@data)
-
-califCities@data$id <- rownames(califCities@data)
-
-citiesInterset <- gIntersection(califCities, CaCounties, 
-                     byid = TRUE,
-                     drop_lower_td = TRUE)
-
-frtfCitiesInterset <- fortify(citiesInterset, region = "NAME")
-
-# get the id field
-
-head(califCities@data)
-head(frtfCitiesInterset)
-
-frtfCitiesInterset <- frtfCitiesInterset %>% 
-  separate(id, into = c("NewID1", "NewID2"), sep = " ")
-
-frtfCitiesInterset <- left_join(frtfCitiesInterset, 
-                                califCities@data, 
-                                by = c('NewID1' = 'id'))
-
-califCitiesWithLabels <- left_join(califCitiesWithLabels, califCities@data,
-                                      by = c('Names' = 'NAME')) %>%
-    select(Names, Longitude, Latitude, group, County) %>%
-  unique()
-
-ggplot(frtfCitiesInterset, aes(long, 
-                               lat, 
-                               group = group)) +
-  geom_polygon(aes(),
-               fill = "grey40",
-               colour = "blue",
-               alpha = .7,
-               size = .05) +
-  geom_polygon(data = frtfCaCounties, aes(long,
-                                        lat,
-                                        group = group), 
-            fill = "khaki",
-            color = "red",
-            alpha = .2,
-            size = 0.1) +
-  coord_map() +
-  theme_minimal() 
-
-# merget the pas with the set of table8 crimes
-
-head(frtfCitiesInterset)
-
-comboCities <- left_join(frtfCitiesInterset, 
-                                comboRecs, 
-                                by = c('NAME' = 'City')) %>%
-  filter(!is.na(Type)) %>%
-  unique()
-
-# take a look at those cities not on the map layer
-
-anti_join(frtfCitiesInterset,
-          comboRecs,
-          by = c('NAME' = 'City')) %>%
-  select(County, NAME) %>%
-  distinct()
-
-anti_join(comboRecs,
-          frtfCitiesInterset,
-          by = c('City' = 'NAME')) %>%
-  select(City) %>%
-  distinct()
-
-# get the limits for each county
-
-longLimits <- frtfCaCounties %>%
-  group_by(id) %>%
-  select(long, id) %>%
-  unique() %>%
-  arrange(long) %>%  ## optional
-  filter(long %in% range(long)) %>%
-   mutate(Number = 1,
-          cumsum = cumsum(Number)) %>%
-  select(long, id, cumsum) %>%
-  mutate(cumsum = ifelse(cumsum == 1, 
-                         "longMax", "LongMin")) %>%
-  spread(cumsum, long)
-
-latLimits <- frtfCaCounties %>%
-  group_by(id) %>%
-  select(lat, id) %>%
-  unique() %>%
-  arrange(lat) %>%  ## optional
-  filter(lat %in% range(lat)) %>%
-   mutate(Number = 1,
-          cumsum = cumsum(Number)) %>%
-  select(lat, id, cumsum) %>%
-  mutate(cumsum = ifelse(cumsum == 1, 
-                         "latMax", "LatMin")) %>%
-  spread(cumsum, lat)
-
-
-# centroids.df <- as.data.frame(coordinates(comboCities))
-# names(centroids.df) <- c("Longitude", "Latitude") 
-
-comboCities %>%
-  filter(NAME != 'Vernon' &
-           NAME !='Industry') %>%
-  # select(NAME) %>%
-  # distinct() %>% arrange((NAME))
-  ggplot( aes(long, lat, group = group, fill = ViolentCrimeRate)) +
-  geom_polygon(aes(),
-               # fill="grey40",
-               colour = "grey90",
-               alpha = .7,
-               size = .05) +
-  # geom_text(aes(label = NAME, x = Longitude, y = Latitude), size = 1) +
-  scale_fill_gradientn(name = "Rate",
-                       colours = rainbow(7),
-                       limits = c(0,2000)) +
-  geom_polygon(data = frtfCaCounties, aes(long,
-                                          lat,
-                                          group = group), 
-               fill = "khaki",
-               color = "red",
-               alpha = .2,
-               size = 0.1) +
-  coord_map() +
-  theme_minimal() + 
-  facet_wrap(~ Type)
-
-```
-
 ```{r createbenfordAnalysis, eval=TRUE, include=FALSE}
 
 benfordAnalysis <- comboCities %>%
-  select(NAME, County, Year = Type,
-         `Murder and nonnegligent manslaughter`:`Aggravated assault`,
+  select(City, County, Year = year,
+         Murderandnonnegligentmanslaughter:Aggravatedassault,
          Burglary:Arson) %>%
-  unique() %>%
-  gather(Metric, Count, -c(NAME, County, Year)) %>%
-  filter(Year == "CA2014")
-```
+  distinct() %>%
+  gather(Metric, Count, -c(City, County, Year)) # %>% filter(Year == "CA2014")
 
-
-
-```{r createbenfordAnalysis1, eval=TRUE, include=FALSE}
 cp <- benford(benfordAnalysis$Count, 2, sign = "both")
 # cp #prints
 # plot(cp) #plots
-
-```
-
-```{r createbenfordAnalysis2, eval=TRUE, include=FALSE}
 
 head(suspectsTable(cp), 10) #prints the digits by decreasing order of discrepancies
 #gets observations of the 2 most suspicious groups
@@ -877,12 +514,11 @@ nrow(suspects)/nrow(benfordAnalysis)
 ```{r createbenfordAnalysis3, eval=FALSE, include=FALSE}
 
 benfordAnalysisPop <- comboCities %>%
-  select(NAME, County, Year = Type,
+  select(City, County, Year = year,
          Pop2010) %>%
   # mutate(Pop2010 = as.numeric(Pop2010)) %>%
-  unique() %>%
-  gather(Metric, Count, -c(NAME, County, Year)) %>%
-  filter(Year == "CA2014")
+  distinct() %>%
+  gather(Metric, Count, -c(City, County, Year)) # %>% filter(Year == "CA2014")
 
 cp <- benford(benfordAnalysisPop$Count, 2, sign = "both")
 cp #prints
@@ -903,9 +539,8 @@ nrow(suspectsPop)/nrow(benfordAnalysis)
 ```{r getCrimeMax, eval = TRUE}
 
 RateLimits <- comboCities %>%
-  select(County, Type, 
-         ends_with("Rate")) %>%
-  gather(Crime, Value, -c(County, Type)) %>% unique() %>% # head(500) %>%
+  select(County, ends_with("rate")) %>%
+  gather(Crime, Value, -c(County)) %>% unique() %>% # head(500) %>%
   group_by(County, Crime) %>%
   # mutate(MaxRate = max(Value, na.rm = TRUE)) %>%
   summarise(Avg = mean(Value, na.rm = TRUE),
@@ -919,9 +554,8 @@ RateLimits <- comboCities %>%
 
 ggplot(RateLimits, aes(CrimLimit, County)) +
   geom_point() +
-    scale_x_continuous(labels = comma) +
-  facet_wrap(~Crime, ncol = 2)
-
+  scale_x_continuous(labels = comma) +
+  facet_wrap(~Crime, ncol = 2, scales = "free")
 
 ```
 
@@ -931,53 +565,58 @@ ggplot(RateLimits, aes(CrimLimit, County)) +
 
 dir.create("./data", showWarnings = FALSE)
 
-comboCities %>%
-  select(long, lat, NAME, County, Type, group, 
-  ends_with("Rate")) %>%
-  write.table(file = "./data/comboCities.txt", 
-  sep = "\t", na = "0", row.names = FALSE)
+frtfCitiesInterset %>%
+  select(long, lat, City, County, group) %>%
+  fwrite(file = "./data/frtfCitiesInterset.txt", 
+              sep = "\t", na = "0")
+
+comboRecs %>%
+  select(City, year,
+         ends_with("rate")) %>%
+  fwrite(file = "./data/comboRecs.txt", 
+              sep = "\t", na = "0")
 
 frtfCaCounties %>%
   select(long, lat, id, group) %>%
-  write.table(file = "./data/frtfCaCounties.txt", 
-  sep = "\t", na = "0", row.names = FALSE)
+  fwrite(file = "./data/frtfCaCounties.txt", 
+         sep = "\t", na = "0")
 
 left_join(longLimits, latLimits) %>%
-  write.table( file = "./data/countyLimits.txt", 
-               sep = "\t", na = "0", 
-               row.names = FALSE)
+  fwrite( file = "./data/countyLimits.txt", 
+          sep = "\t", na = "0")
+
 suspects %>%
-  write.table(file = "./data/suspects.txt",
-sep = "\t", na = "0", row.names = FALSE)
+  fwrite(file = "./data/suspects.txt",
+         sep = "\t", na = "0")
 
 califCitiesWithLabels %>%
-  write.table(file = "./data/califCitiesWithLabels.txt",
-sep = "\t", na = "0", row.names = FALSE)
+  fwrite(file = "./data/califCitiesWithLabels.txt",
+         sep = "\t", na = "0")
 
 RateLimits %>%
-  write.table(file = "./data/RateLimits.txt",
-sep = "\t", na = "0", row.names = FALSE)
+  fwrite(file = "./data/RateLimits.txt",
+         sep = "\t", na = "0")
 
 ```
 
 ```{r plotCityRatesbyYear, eval=TRUE, include=TRUE, fig.cap= "The cities of Vernon and Industry have extreme violent crimes rates because they have few residents compared to most cities", message = FALSE, warning = FALSE, include=TRUE} 
 
-colourCount = length(unique(comboCities$Type))
+colourCount = length(unique(comboCities$year))
 getPalette = colorRampPalette(brewer.pal(8, "Accent"))
 
 comboCities %>%
-  select(ViolentCrimeRate, NAME, Type, County) %>% 
+  select(Violentcrime_rate, City, year, County) %>% 
   filter(County == "Los Angeles") %>%
   distinct() %>% 
-  ggplot(aes(ViolentCrimeRate, NAME)) +
-  geom_point(aes(colour = factor(Type),
-                 shape = factor(Type))) +
+  ggplot(aes(Violentcrime_rate, City)) +
+  geom_point(aes(colour = factor(year),
+                 shape = factor(year))) +
   scale_x_continuous(trans = log_trans(),
                      breaks = c(100,1000,10000,
                                 50000),
                      labels = comma_format()) +
   scale_shape_manual(name = "Violent crime \nrate per year",
-                     values = c(0:5)) +
+                     values = c(0:6)) +
   scale_color_manual(values = getPalette(colourCount),
                      name = "Violent crime \nrate per year",
                      guide = guide_legend(keywidth = .5,
@@ -1010,9 +649,9 @@ comboCities %>%
 ```{r MapCitiesViolentCrime, fig.height=10, eval=TRUE, include=TRUE, fig.cap= "The city of Compton has one of the highest violent crimes rates in the county for the year 2014", message = FALSE, warning = FALSE, include=TRUE} 
 
 setCities <- comboCities %>%
-  select(long, lat, NAME, County, Type, group, 
+  select(long, lat, City, County, year, group, 
   ends_with("Rate")) %>%
-  filter( County == "Los Angeles", Type == "CA2014") %>%
+  filter( County == "Los Angeles", year == "CA2014") %>%
   as.data.frame()
 
 countyLimitsFiltered <- left_join(longLimits, latLimits) %>%
@@ -1020,7 +659,7 @@ countyLimitsFiltered <- left_join(longLimits, latLimits) %>%
 
 CrimeLimits <- RateLimits %>% 
   filter( County == "Los Angeles",
-                      Crime == "ViolentCrimeRate") %>%
+                      Crime == "Violentcrime_rate") %>%
   ungroup() %>%
   select(CrimLimit)
 
@@ -1037,9 +676,9 @@ latMax <- countyLimitsFiltered$latMax
 LatMin <- countyLimitsFiltered$LatMin
 
 setCities %>% left_join(califCitiesWithLabelsFiltered, 
-                        c("NAME" = "Names")) %>%
+                        c("City" = "Names")) %>%
   droplevels() %>%
-  ggplot(aes(long, lat, group = group.x, fill = ViolentCrimeRate)) +
+  ggplot(aes(long, lat, group = group, fill = Violentcrime_rate)) +
   geom_polygon(aes(),
                # fill="grey40",
                colour = "grey90",
@@ -1048,7 +687,7 @@ setCities %>% left_join(califCitiesWithLabelsFiltered,
   scale_fill_gradientn(name = "Violent crime Rate per \n100,000 residents in 2014",
                        colours = rainbow(7),
                        limits = c(0, CrimeLimits) ) +
-  geom_text(aes(label = NAME, x = Longitude, y = Latitude),
+  geom_text(aes(label = City, x = Longitude, y = Latitude),
             check_overlap = TRUE,
             size = 2) +
   geom_polygon(data = frtfCaCounties, aes(long,
@@ -1079,8 +718,12 @@ setCities %>% left_join(califCitiesWithLabelsFiltered,
 # add segment that compares crime rate changes since 2011
 # add good limits for map fill colors -- done
 # add links to data souces and code -- done
-# simplyfy maps
+# simplyfy maps done
 # use fread data and fwrite data to write csv files
+# shift islands in LA county up
+# make maps using leaf see  and 
+# https://r-spatial.github.io/mapview/articles/articles/mapview_05-extras.html
+# 
 
 ```
 
